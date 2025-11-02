@@ -4,7 +4,7 @@ Release: v1.0
 Created: 2025-10-24
 
 ## Overview
-BackRest v1.0 is the initial implementation of a backup/restore tool on one fully self-contained external SSD. The bootable OS (Ubuntu Server 22.04), backrest.sh script and all dependencies live within a small 10GB partition. The remaining space on the disk is configured as /imgstore - a large partition for storing backup images. On boot-up, the system configures networking (in case internet access is required for anything), logs in as user backrest (root), runs and displays the results of a self-test, then displays the BackRest main menu. 
+BackRest v1.0 is the initial implementation of a backup/restore tool on one fully self-contained external SSD. The bootable OS (Ubuntu Server 22.04), backrest.sh script and all dependencies live withi[...]  
 
 This document summarizes the features and functionality implemented in v1.0.
 
@@ -34,7 +34,7 @@ This document summarizes the features and functionality implemented in v1.0.
     - Provides the operator the ability to image partitions individually. (In v1.0 the front-end orchestrates imaging; the implementation uses low-level tools.)
   - Filename and destination safety:
     - Operator provides a descriptive filename base for each backup.
-    - All images are written into the fixed image store directory ("/imgstore") on the same drive; the script enforces that destination resolution stays inside the image store directory to prevent accidental device writes.
+    - All images are written into the fixed image store directory ("/imgstore") on the same drive; the script enforces that destination resolution stays inside the image store directory to prevent acc[...]  
 
 - Restore modes
   - Restore an image file to a selected block device or partition.
@@ -42,7 +42,7 @@ This document summarizes the features and functionality implemented in v1.0.
   - The script prompts for explicit confirmation before overwriting a target device.
 
 - Atomic/tempfile write behavior
-  - Writes are performed to temporary files inside an image store subdir (usually a .tmp location) and atomically moved into place once the write completes successfully. This reduces risk of partial images being mistaken for valid images.
+  - Writes are performed to temporary files inside an image store subdir (usually a .tmp location) and atomically moved into place once the write completes successfully. This reduces risk of partial i[...]  
 
 - Progress reporting
   - Backup and restore operations display a progress indicator and ETA to give the operator feedback during long-running operations.
@@ -94,3 +94,25 @@ v1.0 provides a pragmatic, interactive wrapper for low-level imaging tools, offe
 - atomic writes and per-operation logs to aid safety and troubleshooting.
 
 This is the foundational release on which subsequent improvements (menu refinements, dependency management, settings, and self-test features) are built.
+
+
+### v1.1 — 2025-10-24 — Menu & UX refinements
+
+- Interactive menu improvements
+  - Compact, single-screen TTY menu layout with clearer grouping and reduced scrolling.
+  - Enhanced single-key navigation and immediate selection feedback to speed common workflows.
+
+- Device/partition display and selection
+  - More informative, concise device/partition labels (device name, model, size, flags) to help operators distinguish targets.
+  - Improved discovery/listing behavior to reduce selection errors.
+
+- Safety and confirmation flow
+  - Clarified and strengthened destructive-action prompts; explicit confirmations required before overwriting targets.
+  - Reduced risk of accidental device overwrite through clearer UI text and flow design.
+
+- Supporting helpers and robustness
+  - Added/adjusted small helper functions (UI helpers, safe string quoting, press-any-key behavior) to simplify menu logic.
+  - Minor robustness fixes around image-store/tmpdir creation and path handling to avoid menu crashes on missing dirs.
+
+Notes:
+- This release focuses on usability and operator-facing safety; advanced dependency bootstrapping, a comprehensive settings menu, and detailed manifests were not included in v1.1 and are introduced in later revisions.
