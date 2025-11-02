@@ -14,7 +14,9 @@ v1.2 — 2025-10-24 — Added logging
 v1.1 — 2025-10-24 — Menu refinements (better display of disk/partition information to make sure the right disk/partition is chosen).
 v1.0 — 2025-10-24 — Initial implementation: A front-end for dd, BackRest displays a list of drives/partitions (for backup) or image files (for restore) as a menu with one-key menu item selectors. With the option to backup boot sectors only, BackRest backs up to/restores from "/imgstore" directory on same drive. Shows progress bar and ETA for backup/restore operations. Plays notification bel when ops complete.
 ──────────────────────────────────────────────────────
+Github Copilot Development Conversations: 
 https://github.com/copilot/c/f3b19939-b86e-4dba-826e-136ddf14d15e
+https://github.com/copilot/c/43e6255b-db29-4c3b-a638-7dcd705bec53
 
 # END OF
 SCRIPT_HEADER
