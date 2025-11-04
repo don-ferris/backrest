@@ -28,7 +28,7 @@ set -eu -o pipefail
 # Configuration / constants
 # --------------------------
 IMGSTORE="/imgstore"
-BACKREST_DIR="/root/backrest"
+BACKREST_DIR="$HOME/backrest"
 LOGDIR="$BACKREST_DIR/logs"
 TMPDIR="$IMGSTORE/.tmp"
 SCRIPTPATH="")(realpath "{BASH_SOURCE[0]:-$0}")"
