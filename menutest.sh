@@ -26,6 +26,61 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# Show a submenu for a given title. Generates between 4 and 8 unique random letter options.
+submenu() {
+    local title="$1"
+    # 4..8
+    local count=$((RANDOM % 5 + 4))
+    local options
+
+    # Use shuf to pick unique letters from A..Z
+    # If shuf is not available, fall back to a simple shuffle using awk
+    if command -v shuf >/dev/null 2>&1; then
+        mapfile -t options < <(printf '%s\n' {A..Z} | shuf -n "$count")
+    else
+        # simple fallback: print A..Z, assign random number and sort
+        mapfile -t options < <(awk 'BEGIN{srand(); for(i=65;i<=90;i++){printf "%c %f\n", i, rand()}}' | sort -k2,2n | awk '{print $1}' | head -n "$count")
+    fi
+
+    while true; do
+        clear
+        printf '%s Menu\n' "$title"
+        printf '---------\n'
+        for l in "${options[@]}"; do
+            printf '[%s] Option %s\n' "$l" "$l"
+        done
+        printf "\nChoose an option (%s) or press Esc to cancel:\n" "$(IFS=/; echo "${options[*]}")"
+
+        # Read one single character silently
+        read -rsn1 input || true
+
+        # If the user pressed Esc (ASCII escape), exit immediately, silently
+        if [[ "$input" == $'\e' ]]; then
+            exit 0
+        fi
+
+        key=$(printf '%s' "$input" | tr '[:lower:]' '[:upper:]')
+
+        # Check if key is one of the generated options
+        found=false
+        for l in "${options[@]}"; do
+            if [[ "$key" == "$l" ]]; then
+                found=true
+                break
+            fi
+        done
+
+        if [[ "$found" == true ]]; then
+            printf 'You chose %s\n' "$key"
+            sleep 1
+            return 0
+        else
+            printf 'Invalid selection\n'
+            sleep 1.5
+        fi
+    done
+}
+
 while true; do
     clear
     cat <<'MENU'
@@ -40,13 +95,10 @@ Choose an option (B/R/S/X) or press Esc to cancel:
 MENU
 
     # Read one single character silently
-    # -r: raw input (do not treat backslashes specially)
-    # -s: silent (do not echo)
-    # -n1: read 1 character
     read -rsn1 input || true
 
     # If the user pressed Esc (ASCII escape), exit immediately, silently
-    if [[ "${input}" == $'\e' ]]; then
+    if [[ "$input" == $'\e' ]]; then
         exit 0
     fi
 
@@ -55,16 +107,13 @@ MENU
 
     case "$key" in
         B)
-            printf 'You chose B\n'
-            sleep 1
+            submenu "Backup"
             ;;
         R)
-            printf 'You chose R\n'
-            sleep 1
+            submenu "Restore"
             ;;
         S)
-            printf 'You chose S\n'
-            sleep 1
+            submenu "Settings"
             ;;
         X)
             printf 'You chose X\n'
