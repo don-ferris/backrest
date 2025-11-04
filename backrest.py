@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-: <<'SCRIPT_HEADER'
+#!/usr/bin/env python3
+"""
 backrest.sh
 BackRest - interactive backup/restore tool (front-end for partclone + dd). Fully self-contained on bootable drive - backs up to/restores from /imgstore on same drive.
 ──────────────────────────────────────────────────────
@@ -12,5 +12,5 @@ Revision History
 v1.0 — 2025-10-24 — Initial implementation: A front-end for dd, BackRest displays a list of drives/partitions (for backup) or image files (for restore) as a menu with one-key menu item selecto[...]
 ──────────────────────────────────────────────────────
 
-# END OF
-SCRIPT_HEADER
+END OF SCRIPT_HEADER
+"""
