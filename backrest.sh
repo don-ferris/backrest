@@ -5,17 +5,20 @@ BackRest - interactive backup/restore tool (front-end for partclone + dd). Fully
 ──────────────────────────────────────────────────────
 Author: Don Ferris
 Created: 2025-10-28
-Current Revision: 2.1
+Current Revision: 2.2
 ──────────────────────────────────────────────────────
 Revision History
 ================
-v2.1 — 2025-11-02 — Added Wi‑Fi support: detect wireless NIC, include a wifis stanza in generated netplan (DHCPv4), prompt/store last SSID/passphrase in ~/backrest/last.wifi.conn and auto-use when SSID is visible; IPv6 disabled in generated netplan. Improved self-test to log IPv4 interface state and addresses (one line per interface) and connected SSID when present, ping 1.1.1.1, and displays the self-test log at startup. Removed the false "partclone" (no-extension) dependency check.
-v2.0 — 2025-10-29 — Switched partition/volume backups to partclone (copies used blocks only) and reserve dd for boot-sector backups only; boot-sector capture size increased to 10MiB to reliably in[...]
+v2.2 — 2025-11-04 — Fixed undesirable menu behavior by adding helper python script backrest_readkey.py
+v2.1 — 2025-11-02 — Added Wi‑Fi support: detect wireless NIC, include a wifis stanza in generated netplan (DHCPv4), prompt/store last SSID/passphrase in ~/backrest/last.wifi.conn and auto-us[...]
+v2.0 — 2025-10-29 — Switched partition/volume backups to partclone (copies used blocks only) and reserve dd for boot-sector backups only; boot-sector capture size increased to 10MiB to reliabl[...]
 v1.2 — 2025-10-24 — Added logging
 v1.1 — 2025-10-24 — Menu refinements (better display of disk/partition information to make sure the right disk/partition is chosen).
-v1.0 — 2025-10-24 — Initial implementation: A front-end for dd, BackRest displays a list of drives/partitions (for backup) or image files (for restore) as a menu with one-key menu item selectors. [...]
+v1.0 — 2025-10-24 — Initial implementation: A front-end for dd, BackRest displays a list of drives/partitions (for backup) or image files (for restore) as a menu with one-key menu item selecto[...]
 ──────────────────────────────────────────────────────
 https://github.com/copilot/c/f3b19939-b86e-4dba-826e-136ddf14d15e
+https://github.com/copilot/c/43e6255b-db29-4c3b-a638-7dcd705bec53
+
 
 # END OF
 SCRIPT_HEADER
@@ -717,7 +720,7 @@ get_partition_flags() {
   out=""
   for t in "${parts[@]}"; do
     tok="$(printf "%s" "$t" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"; [ -z "$tok" ] && continue
-    case "$tok" in legacy_boot|bios_grub) tok="boot" ;; efi) tok="efi" ;; esp) tok="esp" ;; boot) tok="boot" ;; lvm) tok="lvm" ;; raid) tok="raid" ;; hidden) tok="hidden" ;; swap) tok="swap" ;; msftdata*|msftres*) tok="$tok" ;; *)
+    case "$tok" in legacy_boot|bios_grub) tok="boot" ;; efi) tok="efi" ;; esp) tok="esp" ;; boot) tok="boot" ;; lvm) tok="lvm" ;; raid) tok="raid" ;; hidden) tok="hidden" ;; swap) tok="swap" ;; m[...]
       ;;
     esac
     [ -n "$out" ] && case ",$out," in *",$tok,"*) ;; *) out="${out},${tok}" ;; esac || out="$tok"
@@ -849,194 +852,95 @@ restore_image_to_device() {
 # Menus: helpers included above
 # --------------------------
 
-# --------------------------
-# Backup flow (returns 0 on success, non-zero on failure)
-# --------------------------
-do_backup() {
-  selection_idx="$1"
-  seldev="${MENU_DEVS[$selection_idx]}"
-  seltype="${MENU_TYPE[$selection_idx]}"
-  sel_label="${MENU_LABELS[$selection_idx]}"
+# Robust single-key reader that prefers the helper python binary if available.
+# Sets READ_KEY to:
+#  - "ESC" if user pressed escape
+#  - a single character (byte) otherwise
+read_menu_key() {
+  READ_KEY=""
+  # Prefer installed helper: first look under BACKREST_DIR/bin then /usr/local/bin
+  READ_HELPER="${BACKREST_DIR:-$HOME/backrest}/bin/backrest_readkey.py"
+  [ -x "$READ_HELPER" ] || READ_HELPER="/usr/local/bin/backrest_readkey.py"
+  # If helper exists and is executable, use it to get a literal \xHH sequence
+  if [ -x "$READ_HELPER" ]; then
+    # read helper output from /dev/tty to ensure we don't read from redirected stdin
+    out="$("$READ_HELPER" < /dev/tty 2>/dev/null || true)"
+    if [ -n "$out" ]; then
+      # Decode the \xHH sequences into bytes and examine the first byte
+      decoded="$(printf '%b' "$out")"
+      # Extract first byte
+      first_byte="$(printf '%s' "$decoded" | awk '{printf "%c", substr($0,1,1)}' 2>/dev/null || printf '%s' "${decoded:0:1}")"
+      if [ "$first_byte" = $'\e' ]; then
+        READ_KEY="ESC"
+      else
+        READ_KEY="$first_byte"
+      fi
+      return 0
+    fi
+  fi
 
-  echo
-  echo "Selected: ${sel_label}"
-  if [ "$seltype" = "disk" ]; then
-    echo
-    echo "[A] Partition-by-partition (recommended; uses partclone where possible)"
-    echo "[B] Raw whole-disk (dd) - SLOW and will copy free space"
-    echo "[C] Boot sector only (10MiB)"
-    echo -n "Select option (or press Esc to cancel): "
-    choice_raw="$(get_menu_choice 3)"
-    [ "$choice_raw" = "-1" ] && { menu_invalid; return 1; }
-    [ "$choice_raw" = "-2" ] && { menu_invalid; return 1; }
-    case "$choice_raw" in
-      0) mode="partitioned" ;;
-      1) mode="raw" ;;
-      *) mode="boot" ;;
-    esac
+  # Fallback: use builtin read from /dev/tty
+  if IFS= read -rsn1 key < /dev/tty 2>/dev/null; then
+    if [ "$key" = $'\e' ]; then
+      # consume any remaining quickly to avoid leaving bytes in the tty buffer
+      while read -rsn1 -t 0.01 junk < /dev/tty 2>/dev/null; do :; done
+      READ_KEY="ESC"
+    else
+      READ_KEY="$key"
+    fi
   else
-    echo
-    echo "[A] Partition image (recommended; uses partclone)"
-    echo "[B] Boot sector only (10MiB)"
-    echo -n "Select option (or press Esc to cancel): "
-    choice_raw="$(get_menu_choice 2)"
-    [ "$choice_raw" = "-1" ] && { menu_invalid; return 1; }
-    [ "$choice_raw" = "-2" ] && { menu_invalid; return 1; }
-    [ "$choice_raw" = "0" ] && mode="partitioned" || mode="boot"
-  fi
-
-  echo
-  echo -n "Enter descriptive filename base (no path, no spaces): "
-  read filename_base
-  filename_base="$(printf "%s" "$filename_base" | tr -d ' /')"
-  [ -z "$filename_base" ] && { echo "Empty filename; cancelling."; return 1; }
-
-  LOGPATH="$LOGDIR/${filename_base}.log"
-  log_append "Backup requested: sel=${seldev}, type=${seltype}, mode=${mode}"
-
-  if [ "$mode" = "boot" ]; then
-    destname="${filename_base}.boot"
-    if ! tmpfull="$(validate_and_prepare_dest "$destname")"; then log_append "Invalid destination path"; LOGPATH=""; echo "Invalid destination path"; press_any_key; return 1; fi
-    tmpfull="$(printf "%s" "$tmpfull")"
-    log_append "Writing boot sector to temp $tmpfull"
-    if cmd_exists pv; then dd if="$seldev" bs=512 count="$BOOT_SECTOR_BLOCKS" status=none | pv -s "$BOOT_SECTOR_BYTES" > "$tmpfull"; else dd if="$seldev" bs=512 count="$BOOT_SECTOR_BLOCKS" of="$tmpfull" status=progress; fi
-    mv "$tmpfull" "$IMGSTORE/$destname"
-    log_append "Boot saved to $IMGSTORE/$destname"
-    play_bell_three
-    LOGPATH=""
-    echo "Boot sector saved: $IMGSTORE/$destname"
-    press_any_key
-    return 0
-  fi
-
-  if [ "$mode" = "raw" ]; then
-    destname="${filename_base}.raw.zst"
-    if ! tmpfull="$(validate_and_prepare_dest "$destname")"; then log_append "Invalid destination"; LOGPATH=""; echo "Invalid destination"; press_any_key; return 1; fi
-    tmpfull="$(printf "%s" "$tmpfull")"
-    log_append "Starting raw dd -> zstd to $tmpfull"
-    if cmd_exists pv; then pv_cmd="pv -s $(get_size_bytes "$seldev")"; eval "dd if=\"$seldev\" bs=4M status=none | $pv_cmd | $ZSTD_CMD > \"$tmpfull\""; else eval "dd if=\"$seldev\" bs=4M status=progress | $ZSTD_CMD > \"$tmpfull\""; fi
-    mv "$tmpfull" "$IMGSTORE/$destname"
-    log_append "Raw disk saved to $IMGSTORE/$destname"
-    play_bell_three
-    LOGPATH=""
-    echo "Raw disk saved: $IMGSTORE/$destname"
-    press_any_key
-    return 0
-  fi
-
-  # partitioned mode
-  if [ "$seltype" = "disk" ]; then
-    parttable_file="${filename_base}.parttable.sfdisk"
-    if ! tmp_pt="$(validate_and_prepare_dest "$parttable_file")"; then log_append "Invalid destination for partition table"; LOGPATH=""; echo "Invalid destination for partition table"; press_any_key; return 1; fi
-    tmp_pt="$(printf "%s" "$tmp_pt")"
-    log_append "Saving partition table of $seldev to $tmp_pt"
-    sfdisk -d "$seldev" >"$tmp_pt"
-    mv "$tmp_pt" "$IMGSTORE/$parttable_file"
-    log_append "Partition table saved to $IMGSTORE/$parttable_file"
-
-    mapfile -t parts < <(lsblk -ln -o NAME,TYPE "$seldev" | awk '$2=="part"{print $1}')
-    [ "${#parts[@]}" -eq 0 ] && { log_append "No partitions found on $seldev"; echo "No partitions found"; LOGPATH=""; press_any_key; return 1; }
-
-    for p in "${parts[@]}"; do
-      pdev="/dev/$p"
-      safe_name="${filename_base}_${p}.pcl.zst"
-      if ! tmpfull="$(validate_and_prepare_dest "$safe_name")"; then log_append "Invalid dest for partition $p"; echo "Invalid dest for partition $p"; continue; fi
-      tmpfull="$(printf "%s" "$tmpfull")"
-      log_append "Backing up partition $pdev -> $tmpfull"
-      if ! partclone_save_partition "$pdev" "$tmpfull"; then log_append "Failed to backup $pdev (missing tool or error)."; echo "Failed to backup $pdev; see Settings -> View ensure-deps.log."; rm -f "$tmpfull" || true; continue; fi
-      mv "$tmpfull" "$IMGSTORE/$safe_name"
-      log_append "Saved $pdev -> $IMGSTORE/$safe_name"
-    done
-    play_bell_three
-    LOGPATH=""
-    echo "Partitioned backup complete (see $IMGSTORE)"
-    press_any_key
-    return 0
-  else
-    # single partition
-    pdev="$seldev"
-    safe_name="${filename_base}_${pdev##*/}.pcl.zst"
-    if ! tmpfull="$(validate_and_prepare_dest "$safe_name")"; then log_append "Invalid dest for partition"; LOGPATH=""; echo "Invalid dest for partition"; press_any_key; return 1; fi
-    tmpfull="$(printf "%s" "$tmpfull")"
-    log_append "Backing up partition $pdev -> $tmpfull"
-    if ! partclone_save_partition "$pdev" "$tmpfull"; then log_append "Failed to backup partition $pdev"; echo "Failed to backup partition $pdev"; rm -f "$tmpfull" || true; LOGPATH=""; press_any_key; return 1; fi
-    mv "$tmpfull" "$IMGSTORE/$safe_name"
-    log_append "Saved $pdev -> $IMGSTORE/$safe_name"
-    play_bell_three
-    LOGPATH=""
-    echo "Partition backup saved: $IMGSTORE/$safe_name"
-    press_any_key
-    return 0
+    READ_KEY=""
   fi
 }
 
-# --------------------------
-# Restore flow (returns 0 on success)
-# --------------------------
-do_restore() {
-  mapfile -t images < <(list_images)
-  [ "${#images[@]}" -eq 0 ] && { echo "No images in $IMGSTORE"; press_any_key; return 1; }
-  show_images_menu
-  echo -n "Select letter for the desired source image to restore (or press Esc to cancel): "
-  choice_raw="$(get_menu_choice "${#images[@]}")"
-  [ "$choice_raw" = "-1" ] && { menu_invalid; return 1; }
-  [ "$choice_raw" = "-2" ] && { menu_invalid; return 1; }
-  idx="$choice_raw"; image="${images[$idx]}"; imagepath="$IMGSTORE/$image"
-  echo; echo "Selected image: $imagepath"
-
-  build_inventory
-  show_inventory_menu
-  echo -n "Select the letter for the desired target device to restore to (or press Esc to cancel): "
-  tgt_choice_raw="$(get_menu_choice "${#MENU_DEVS[@]}")"
-  [ "$tgt_choice_raw" = "-1" ] && { menu_invalid; return 1; }
-  [ "$tgt_choice_raw" = "-2" ] && { menu_invalid; return 1; }
-  tgtidx="$tgt_choice_raw"; tgtdev="${MENU_DEVS[$tgtidx]}"
-
-  echo; echo "Confirm:"; echo "  Restore image ${image} -> ${tgtdev##*/}"
-  confirm_yesno "Proceed? This will overwrite the target device" || { echo "Cancelled"; press_any_key; return 1; }
-
-  LOGPATH="$LOGDIR/restore_${image}.log"
-  log_append "Starting restore of $imagepath to $tgtdev"
-
-  if restore_image_to_device "$imagepath" "$tgtdev"; then
-    log_append "Restore completed successfully."
-    play_bell_three
-    LOGPATH=""
-    echo "Restore completed."
-    press_any_key
-    return 0
-  else
-    log_append "Restore failed."
-    play_bell_three
-    LOGPATH=""
-    echo "Restore failed (see logs)."
-    press_any_key
-    return 1
-  fi
-}
-
-# --------------------------
-# Menus: helpers included above
-# --------------------------
+# Replaced get_menu_choice() - robust single-key reader using read_menu_key()
 get_menu_choice() {
   max_entries="$1"
-  read -rsn1 key
-  echo
-  if [ "$key" = $'\e' ]; then while read -rsn1 -t 0.01 junk; do :; done; printf "%s" "-1"; return 0; fi
-  up="$(printf "%s" "$key" | tr '[:lower:]' '[:upper:]')"
-  if ! printf "%s" "$up" | grep -q '^[A-Z]$'; then printf "%s" "-2"; return 0; fi
+
+  # Use the centralized single-key reader so ESC and escape sequences are handled robustly.
+  read_menu_key
+
+  # If helper indicated ESC -> cancel
+  if [ "${READ_KEY:-}" = "ESC" ]; then
+    printf "%s" "-1"
+    return 0
+  fi
+
+  # If nothing read -> invalid/non-letter
+  if [ -z "${READ_KEY:-}" ]; then
+    printf "%s" "-2"
+    return 0
+  fi
+
+  ch="$READ_KEY"
+  up="$(printf "%s" "$ch" | tr '[:lower:]' '[:upper:]')"
+
+  # Must be a single ASCII letter
+  if ! printf "%s" "$up" | grep -q '^[A-Z]$'; then
+    printf "%s" "-2"
+    return 0
+  fi
+
   idx="$(printf "%d" "'$up")"; base="$(printf "%d" "'A")"; idx=$((idx - base))
-  if [ "$idx" -lt 0 ] || [ "$idx" -ge "$max_entries" ]; then printf "%s" "-2"; return 0; fi
-  printf "%s" "$idx"; return 0
+
+  if [ "$idx" -lt 0 ] || [ "$idx" -ge "$max_entries" ]; then
+    printf "%s" "-2"
+    return 0
+  fi
+
+  printf "%s" "$idx"
+  return 0
 }
 
 confirm_yesno() {
   prompt="$1"
   echo
   echo -n "$prompt [y/N]: "
-  read -rsn1 yn; echo
-  [ "$yn" = $'\e' ] && { while read -rsn1 -t 0.01 junk; do :; done; return 1; }
-  yn="$(printf "%s" "$yn" | tr '[:upper:]' '[:lower:]')"
+  # Use read_menu_key so ESC handling is consistent here too
+  read_menu_key
+  echo
+  [ "$READ_KEY" = "ESC" ] && { while read -rsn1 -t 0.01 junk; do :; done; return 1; }
+  yn="$(printf "%s" "$READ_KEY" | tr '[:upper:]' '[:lower:]')"
   [ "$yn" = "y" ]
 }
 
@@ -1063,8 +967,8 @@ settings_menu() {
     [ "$ch" = $'\e' ] && { while read -rsn1 -t 0.01 junk; do :; done; echo "Cancelled. Returning."; return 0; }
     ch="$(printf "%s" "$ch" | tr '[:lower:]' '[:upper:]')"
     case "$ch" in
-      D) echo "Running dependency installer..."; if ensure_backrest_depends; then touch "$BACKREST_DIR/deps-ok"; echo "Dependencies installed."; press_any_key; return 0; else echo "Dependency install failed. See $LOGDIR/ensure-deps.log"; press_any_key; return 1; fi ;;
-      N) LOGPATH="$LOGDIR/ensure-deps.log"; if setup_netplan; then echo "Networking configured."; else echo "Networking setup failed. See $LOGDIR/ensure-deps.log"; fi; LOGPATH=""; press_any_key ;;
+      D) echo "Running dependency installer..."; if ensure_backrest_depends; then touch "$BACKREST_DIR/deps-ok"; echo "Dependencies installed."; press_any_key; return 0; else echo "Dependency in[...]
+      N) LOGPATH="$LOGDIR/ensure-deps.log"; if setup_netplan; then echo "Networking configured."; else echo "Networking setup failed. See $LOGDIR/ensure-deps.log"; fi; LOGPATH=""; press_any_key [...]
       R) remove_backrest_deps ;;
       T) view_selftest_log ;;
       L) view_ensure_log ;;
@@ -1148,4 +1052,4 @@ self_test_display
 [ -t 0 ] || { echo "This script is interactive and requires a real TTY (tty1). Exiting."; exit 1; }
 
 main_menu
-# End of file   2115
+# End of file  251104-1127
