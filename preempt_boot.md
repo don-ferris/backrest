@@ -1,4 +1,4 @@
-Excellent question — “TinyBooter” isn’t a single official product but a class of minimalist bootloaders (or firmware shims) that exist purely to redirect boot control — usually to USB, network, or another disk — before the OS ever starts.
+“TinyBooter” isn’t a single official product but a class of minimalist bootloaders (or firmware shims) that exist purely to redirect boot control — usually to USB, network, or another disk — before the OS ever starts.
 
 Let’s break this down so you know what it is, what it can do, and how you could build or use one.
 
