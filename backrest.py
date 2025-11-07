@@ -45,6 +45,11 @@ USER = "backrest"
 runtime_state = {}
 logger = None
 
+# Simple console logging fallback
+def _console_log(level: str, message: str):
+    """Fallback logging to console before logger is initialized."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}", flush=True)
 
 
 # =========================================
@@ -65,20 +70,30 @@ def init_environment() -> Dict[str, Any]:
     }
     
     logger = setup_logging()
-    logger.info(f"BackRest initialized at {runtime_state['start_time']}")
+    if logger:
+        logger.info(f"BackRest initialized at {runtime_state['start_time']}")
+    else:
+        _console_log("INFO", f"BackRest initialized at {runtime_state['start_time']}")
     
     return runtime_state
 
 
 def check_mounts() -> bool:
     """Ensure IMGSTORE_DIR and LOGS_CFG_DIR are mounted & writable."""
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         # Check if directories exist
         if not IMGSTORE_DIR.exists():
-            logger.error(f"IMGSTORE_DIR {IMGSTORE_DIR} does not exist")
+            safe_log("error", f"IMGSTORE_DIR {IMGSTORE_DIR} does not exist")
             return False
         if not LOGS_CFG_DIR.exists():
-            logger.error(f"LOGS_CFG_DIR {LOGS_CFG_DIR} does not exist")
+            safe_log("error", f"LOGS_CFG_DIR {LOGS_CFG_DIR} does not exist")
             return False
         
         # Check writability
@@ -91,48 +106,60 @@ def check_mounts() -> bool:
             test_file_logs.touch()
             test_file_logs.unlink()
         except PermissionError as e:
-            logger.error(f"Mount check failed: {e}")
+            safe_log("error", f"Mount check failed: {e}")
             return False
         
-        logger.info("Mount check passed")
+        safe_log("info", "Mount check passed")
         return True
     except Exception as e:
-        logger.error(f"Error checking mounts: {e}")
+        safe_log("error", f"Error checking mounts: {e}")
         return False
 
 
-def setup_logging() -> logging.Logger:
+def setup_logging() -> Optional[logging.Logger]:
     """Configure logging to /logs-cfg/lastrun.log and console."""
-    # Ensure archive directory exists
-    archive_dir = LOGS_CFG_DIR / "archive"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create logger
-    log = logging.getLogger("BackRest")
-    log.setLevel(logging.DEBUG)
-    
-    # File handler
-    log_file = LOGS_CFG_DIR / "lastrun.log"
-    file_handler = logging.FileHandler(log_file, mode='w')
-    file_handler.setLevel(logging.DEBUG)
-    
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    
-    # Formatter
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-    
-    log.addHandler(file_handler)
-    log.addHandler(console_handler)
-    
-    return log
+    try:
+        # Ensure archive directory exists
+        archive_dir = LOGS_CFG_DIR / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create logger
+        log = logging.getLogger("BackRest")
+        log.setLevel(logging.DEBUG)
+        
+        # File handler
+        log_file = LOGS_CFG_DIR / "lastrun.log"
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setLevel(logging.DEBUG)
+        
+        # Console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        
+        # Formatter
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+        
+        log.addHandler(file_handler)
+        log.addHandler(console_handler)
+        
+        return log
+    except Exception as e:
+        # Fallback to console logging
+        _console_log("ERROR", f"Failed to setup logging: {e}")
+        return None
 
 
 def archive_lastrun_log() -> Optional[Path]:
     """Copy/rotate /logs-cfg/lastrun.log -> /logs-cfg/archive/YYYYMMDD-hhmm.log"""
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         lastrun_log = LOGS_CFG_DIR / "lastrun.log"
         if not lastrun_log.exists():
@@ -142,27 +169,34 @@ def archive_lastrun_log() -> Optional[Path]:
         archive_path = LOGS_CFG_DIR / "archive" / f"{timestamp}.log"
         
         shutil.copy2(lastrun_log, archive_path)
-        logger.info(f"Archived log to {archive_path}")
+        safe_log("info", f"Archived log to {archive_path}")
         return archive_path
     except Exception as e:
-        logger.error(f"Failed to archive log: {e}")
+        safe_log("error", f"Failed to archive log: {e}")
         return None
 
 
 def read_dependencies(file: Path = DEPENDS_FILE) -> List[str]:
     """Read package/tool dependency list from depends.lst"""
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         if not file.exists():
-            logger.warning(f"Dependencies file {file} not found")
+            safe_log("warning", f"Dependencies file {file} not found")
             return []
         
         with open(file, 'r') as f:
             deps = [line.strip() for line in f if line.strip() and not line.startswith('#')]
         
-        logger.debug(f"Read {len(deps)} dependencies from {file}")
+        safe_log("debug", f"Read {len(deps)} dependencies from {file}")
         return deps
     except Exception as e:
-        logger.error(f"Error reading dependencies: {e}")
+        safe_log("error", f"Error reading dependencies: {e}")
         return []
 
 
@@ -171,26 +205,40 @@ def check_dependencies(continue_on_unmet: bool = False) -> Tuple[bool, List[str]
     dependencies = read_dependencies()
     missing = []
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     for dep in dependencies:
         # Check if command/package exists
         result = subprocess.run(['which', dep], capture_output=True, text=True)
         if result.returncode != 0:
             missing.append(dep)
-            logger.warning(f"Missing dependency: {dep}")
+            safe_log("warning", f"Missing dependency: {dep}")
     
     all_ok = len(missing) == 0
     
     if not all_ok:
-        logger.warning(f"Missing {len(missing)} dependencies: {', '.join(missing)}")
+        safe_log("warning", f"Missing {len(missing)} dependencies: {', '.join(missing)}")
         if not continue_on_unmet:
-            logger.error("Cannot continue with unmet dependencies")
+            safe_log("error", "Cannot continue with unmet dependencies")
     
     return all_ok, missing
 
 
 def self_test() -> Dict[str, Any]:
     """Run non-destructive self-test (dependency checks + small network report)"""
-    logger.info("Running self-test...")
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
+    safe_log("info", "Running self-test...")
     
     dependencies_ok, missing_deps = check_dependencies(continue_on_unmet=True)
     net_report = list_network_interfaces()
@@ -210,15 +258,22 @@ def self_test() -> Dict[str, Any]:
     
     print(f"\nNetwork Interfaces: {len(net_report)}")
     for iface in net_report:
-        print(f"  {iface['name']}: {iface['link_state']} - {iface.get('ip', 'No IP')}")
+        print(f"  {iface.get('name', 'unknown')}: {iface.get('link_state', 'unknown')} - {iface.get('ip', 'No IP')}")
     
-    logger.info("Self-test complete")
+    safe_log("info", "Self-test complete")
     return summary
 
 
 def find_backrest_drive() -> Optional[str]:
     """Scan block devices to identify drive containing partitions labeled LOGS_CFG and IMGSTORE."""
     global BACKREST_DRV
+    
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
     
     try:
         # Use lsblk to find devices with LOGS_CFG and IMGSTORE labels
@@ -228,33 +283,51 @@ def find_backrest_drive() -> Optional[str]:
         )
         
         if result.returncode != 0:
-            logger.error("Failed to run lsblk")
+            safe_log("error", "Failed to run lsblk")
             return None
         
-        devices = json.loads(result.stdout)
+        # Safe JSON parsing
+        try:
+            devices = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            safe_log("error", f"Failed to parse lsblk JSON output: {e}")
+            return None
+        
+        # Validate JSON structure
+        if not isinstance(devices, dict) or 'blockdevices' not in devices:
+            safe_log("error", "Invalid JSON structure from lsblk")
+            return None
         
         labels_found = {'LOGS_CFG': None, 'IMGSTORE': None}
         
         for device in devices.get('blockdevices', []):
+            # Validate device structure
+            if not isinstance(device, dict):
+                continue
+                
             if device.get('label') in labels_found:
                 labels_found[device['label']] = device.get('pkname')
             
             # Check children (partitions)
-            for child in device.get('children', []):
-                if child.get('label') in labels_found:
-                    labels_found[child['label']] = device.get('name')
+            children = device.get('children', [])
+            if isinstance(children, list):
+                for child in children:
+                    if not isinstance(child, dict):
+                        continue
+                    if child.get('label') in labels_found:
+                        labels_found[child['label']] = device.get('name')
         
         # Check if both labels found on same drive
         if labels_found['LOGS_CFG'] and labels_found['IMGSTORE']:
             if labels_found['LOGS_CFG'] == labels_found['IMGSTORE']:
                 BACKREST_DRV = f"/dev/{labels_found['LOGS_CFG']}"
-                logger.info(f"BackRest drive identified: {BACKREST_DRV}")
+                safe_log("info", f"BackRest drive identified: {BACKREST_DRV}")
                 return BACKREST_DRV
         
-        logger.warning("Could not identify BackRest drive")
+        safe_log("warning", "Could not identify BackRest drive")
         return None
     except Exception as e:
-        logger.error(f"Error finding BackRest drive: {e}")
+        safe_log("error", f"Error finding BackRest drive: {e}")
         return None
 
 
@@ -373,7 +446,10 @@ def keypress_menu_select(menu_items: List[Tuple], prompt: str, page_size: int = 
             
             print(f"\nInvalid selection: {ch}")
         except Exception as e:
-            logger.error(f"Error in menu selection: {e}")
+            if logger:
+                logger.error(f"Error in menu selection: {e}")
+            else:
+                _console_log("ERROR", f"Error in menu selection: {e}")
             return None
 
 
@@ -404,11 +480,20 @@ def read_settings() -> Dict[str, Any]:
                 loaded = json.load(f)
                 # Merge with defaults
                 default_settings.update(loaded)
-                logger.debug("Settings loaded from file")
+                if logger:
+                    logger.debug("Settings loaded from file")
+                else:
+                    _console_log("DEBUG", "Settings loaded from file")
         else:
-            logger.debug("Using default settings")
+            if logger:
+                logger.debug("Using default settings")
+            else:
+                _console_log("DEBUG", "Using default settings")
     except Exception as e:
-        logger.warning(f"Error loading settings: {e}, using defaults")
+        if logger:
+            logger.warning(f"Error loading settings: {e}, using defaults")
+        else:
+            _console_log("WARNING", f"Error loading settings: {e}, using defaults")
     
     return default_settings
 
@@ -420,10 +505,16 @@ def write_settings(settings: Dict[str, Any]) -> bool:
     try:
         with open(settings_file, 'w') as f:
             json.dump(settings, f, indent=2)
-        logger.info("Settings saved")
+        if logger:
+            logger.info("Settings saved")
+        else:
+            _console_log("INFO", "Settings saved")
         return True
     except Exception as e:
-        logger.error(f"Failed to save settings: {e}")
+        if logger:
+            logger.error(f"Failed to save settings: {e}")
+        else:
+            _console_log("ERROR", f"Failed to save settings: {e}")
         return False
 
 
@@ -436,7 +527,6 @@ def human_readable_size(bytes_val: int) -> str:
     return f"{bytes_val:.2f} PiB"
 
 
-
 # ===========================
 # III. NETWORKING FUNCTIONS
 # ===========================
@@ -445,43 +535,66 @@ def list_network_interfaces() -> List[Dict[str, Any]]:
     """Return list of physical interfaces and link states."""
     interfaces = []
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         # Use ip command to list interfaces
         result = subprocess.run(['ip', '-j', 'link', 'show'], capture_output=True, text=True)
         if result.returncode == 0:
-            links = json.loads(result.stdout)
+            try:
+                links = json.loads(result.stdout)
+            except json.JSONDecodeError as e:
+                safe_log("error", f"Failed to parse ip JSON output: {e}")
+                return interfaces
             
-            for link in links:
-                if link['link_type'] in ['loopback']:
-                    continue
-                
-                iface_name = link['ifname']
-                link_state = 'UP' if 'UP' in link.get('flags', []) else 'DOWN'
-                
-                # Get IP address
-                ip_result = subprocess.run(
-                    ['ip', '-j', 'addr', 'show', iface_name],
-                    capture_output=True, text=True
-                )
-                ip_addr = None
-                if ip_result.returncode == 0:
-                    addr_info = json.loads(ip_result.stdout)
-                    for addr in addr_info:
-                        for addr_entry in addr.get('addr_info', []):
-                            if addr_entry.get('family') == 'inet':
-                                ip_addr = addr_entry.get('local')
-                                break
-                
-                interfaces.append({
-                    "name": iface_name,
-                    "link_state": link_state,
-                    "ip": ip_addr,
-                    "ssid": None  # TODO: get SSID for wireless
-                })
+            if isinstance(links, list):
+                for link in links:
+                    if not isinstance(link, dict):
+                        continue
+                        
+                    if link.get('link_type') in ['loopback']:
+                        continue
+                    
+                    iface_name = link.get('ifname', 'unknown')
+                    link_state = 'UP' if 'UP' in link.get('flags', []) else 'DOWN'
+                    
+                    # Get IP address
+                    ip_result = subprocess.run(
+                        ['ip', '-j', 'addr', 'show', iface_name],
+                        capture_output=True, text=True
+                    )
+                    ip_addr = None
+                    if ip_result.returncode == 0:
+                        try:
+                            addr_info = json.loads(ip_result.stdout)
+                            if isinstance(addr_info, list):
+                                for addr in addr_info:
+                                    if not isinstance(addr, dict):
+                                        continue
+                                    for addr_entry in addr.get('addr_info', []):
+                                        if not isinstance(addr_entry, dict):
+                                            continue
+                                        if addr_entry.get('family') == 'inet':
+                                            ip_addr = addr_entry.get('local')
+                                            break
+                        except json.JSONDecodeError:
+                            pass  # Continue without IP
+                    
+                    interfaces.append({
+                        "name": iface_name,
+                        "link_state": link_state,
+                        "ip": ip_addr,
+                        "ssid": None  # TODO: get SSID for wireless
+                    })
         
-        logger.debug(f"Found {len(interfaces)} network interfaces")
+        safe_log("debug", f"Found {len(interfaces)} network interfaces")
     except Exception as e:
-        logger.error(f"Error listing network interfaces: {e}")
+        safe_log("error", f"Error listing network interfaces: {e}")
     
     return interfaces
 
@@ -489,24 +602,42 @@ def list_network_interfaces() -> List[Dict[str, Any]]:
 def config_network_from_cfg() -> bool:
     """If /logs-cfg/cfg/10-<hostname>.netcfg.yaml exists, apply it."""
     try:
-        hostname = subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip()
-        netcfg_file = LOGS_CFG_DIR / "cfg" / f"10-{hostname}.netcfg.yaml"
-        
-        if not netcfg_file.exists():
-            logger.info(f"No network config found at {netcfg_file}")
-            return False
-        
-        logger.info(f"Applying network config from {netcfg_file}")
-        # TODO: Implement netplan or NetworkManager configuration application
-        return True
+        result = subprocess.run(['hostname'], capture_output=True, text=True)
+        if result.returncode == 0:
+            hostname = result.stdout.strip()
+            netcfg_file = LOGS_CFG_DIR / "cfg" / f"10-{hostname}.netcfg.yaml"
+            
+            if not netcfg_file.exists():
+                if logger:
+                    logger.info(f"No network config found at {netcfg_file}")
+                else:
+                    _console_log("INFO", f"No network config found at {netcfg_file}")
+                return False
+            
+            if logger:
+                logger.info(f"Applying network config from {netcfg_file}")
+            else:
+                _console_log("INFO", f"Applying network config from {netcfg_file}")
+            # TODO: Implement netplan or NetworkManager configuration application
+            return True
     except Exception as e:
-        logger.error(f"Error applying network config: {e}")
+        if logger:
+            logger.error(f"Error applying network config: {e}")
+        else:
+            _console_log("ERROR", f"Error applying network config: {e}")
         return False
 
 
 def scan_wifi_ssids() -> List[str]:
     """Use nmcli to list SSIDs and signal strengths."""
     ssids = []
+    
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
     
     try:
         result = subprocess.run(
@@ -523,11 +654,11 @@ def scan_wifi_ssids() -> List[str]:
                         if ssid and ssid not in ssids:
                             ssids.append(ssid)
         
-        logger.debug(f"Found {len(ssids)} WiFi networks")
+        safe_log("debug", f"Found {len(ssids)} WiFi networks")
     except FileNotFoundError:
-        logger.warning("nmcli not available")
+        safe_log("warning", "nmcli not available")
     except Exception as e:
-        logger.error(f"Error scanning WiFi: {e}")
+        safe_log("error", f"Error scanning WiFi: {e}")
     
     return ssids
 
@@ -576,7 +707,10 @@ def config_wifi_interactive() -> Dict[str, Any]:
             print(f"Connection failed: {result.stderr}")
             return {"ok": False, "ssid": ssid, "ip": None}
     except Exception as e:
-        logger.error(f"Error connecting to WiFi: {e}")
+        if logger:
+            logger.error(f"Error connecting to WiFi: {e}")
+        else:
+            _console_log("ERROR", f"Error connecting to WiFi: {e}")
         return {"ok": False, "ssid": ssid, "ip": None}
 
 
@@ -599,9 +733,15 @@ def test_network_connectivity() -> Dict[str, bool]:
         )
         result["ping_ok"] = ping_result.returncode == 0
     except Exception as e:
-        logger.error(f"Error testing connectivity: {e}")
+        if logger:
+            logger.error(f"Error testing connectivity: {e}")
+        else:
+            _console_log("ERROR", f"Error testing connectivity: {e}")
     
-    logger.info(f"Network connectivity: has_ip={result['has_ip']}, ping_ok={result['ping_ok']}")
+    if logger:
+        logger.info(f"Network connectivity: has_ip={result['has_ip']}, ping_ok={result['ping_ok']}")
+    else:
+        _console_log("INFO", f"Network connectivity: has_ip={result['has_ip']}, ping_ok={result['ping_ok']}")
     return result
 
 
@@ -619,12 +759,17 @@ def write_netcfg_for_host(hostname: str) -> Optional[Path]:
         with open(netcfg_file, 'w') as f:
             f.write(config_content)
         
-        logger.info(f"Network config written to {netcfg_file}")
+        if logger:
+            logger.info(f"Network config written to {netcfg_file}")
+        else:
+            _console_log("INFO", f"Network config written to {netcfg_file}")
         return netcfg_file
     except Exception as e:
-        logger.error(f"Error writing network config: {e}")
+        if logger:
+            logger.error(f"Error writing network config: {e}")
+        else:
+            _console_log("ERROR", f"Error writing network config: {e}")
         return None
-
 
 
 # =====================================
@@ -635,6 +780,13 @@ def scan_disks_and_partitions() -> List[Dict[str, Any]]:
     """Produce inventory of block devices and partitions."""
     disks = []
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         result = subprocess.run(
             ['lsblk', '-J', '-o', 'NAME,TYPE,SIZE,VENDOR,MODEL,FSTYPE,LABEL,MOUNTPOINT'],
@@ -642,15 +794,28 @@ def scan_disks_and_partitions() -> List[Dict[str, Any]]:
         )
         
         if result.returncode != 0:
-            logger.error("Failed to run lsblk")
+            safe_log("error", "Failed to run lsblk")
             return disks
         
-        data = json.loads(result.stdout)
+        # Safe JSON parsing
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            safe_log("error", f"Failed to parse lsblk JSON: {e}")
+            return disks
+        
+        # Validate JSON structure
+        if not isinstance(data, dict) or 'blockdevices' not in data:
+            safe_log("error", "Invalid lsblk JSON structure")
+            return disks
         
         for device in data.get('blockdevices', []):
-            if device['type'] == 'disk':
+            if not isinstance(device, dict):
+                continue
+                
+            if device.get('type') == 'disk':
                 disk_info = {
-                    "dev": f"/dev/{device['name']}",
+                    "dev": f"/dev/{device.get('name', 'unknown')}",
                     "type": "disk",
                     "vendor": device.get('vendor', 'Unknown').strip(),
                     "model": device.get('model', 'Unknown').strip(),
@@ -660,24 +825,29 @@ def scan_disks_and_partitions() -> List[Dict[str, Any]]:
                 }
                 
                 # Process partitions
-                for child in device.get('children', []):
-                    if child['type'] == 'part':
-                        partition_info = {
-                            "dev": f"/dev/{child['name']}",
-                            "fs": child.get('fstype', 'Unknown'),
-                            "mount": child.get('mountpoint', ''),
-                            "label": child.get('label', ''),
-                            "size": child.get('size', '0'),
-                            "size_bytes": 0,  # TODO: parse size
-                            "used": 0
-                        }
-                        disk_info["partitions"].append(partition_info)
+                children = device.get('children', [])
+                if isinstance(children, list):
+                    for child in children:
+                        if not isinstance(child, dict):
+                            continue
+                            
+                        if child.get('type') == 'part':
+                            partition_info = {
+                                "dev": f"/dev/{child.get('name', 'unknown')}",
+                                "fs": child.get('fstype', 'Unknown'),
+                                "mount": child.get('mountpoint', ''),
+                                "label": child.get('label', ''),
+                                "size": child.get('size', '0'),
+                                "size_bytes": 0,  # TODO: parse size
+                                "used": 0
+                            }
+                            disk_info["partitions"].append(partition_info)
                 
                 disks.append(disk_info)
         
-        logger.info(f"Scanned {len(disks)} disks")
+        safe_log("info", f"Scanned {len(disks)} disks")
     except Exception as e:
-        logger.error(f"Error scanning disks: {e}")
+        safe_log("error", f"Error scanning disks: {e}")
     
     return disks
 
@@ -710,10 +880,16 @@ def save_inventory(path: Path = None) -> Tuple[bool, Optional[Path]]:
                 
                 f.write("\n" + "-" * 70 + "\n\n")
         
-        logger.info(f"Inventory saved to {path}")
+        if logger:
+            logger.info(f"Inventory saved to {path}")
+        else:
+            _console_log("INFO", f"Inventory saved to {path}")
         return True, path
     except Exception as e:
-        logger.error(f"Error saving inventory: {e}")
+        if logger:
+            logger.error(f"Error saving inventory: {e}")
+        else:
+            _console_log("ERROR", f"Error saving inventory: {e}")
         return False, None
 
 
@@ -721,9 +897,16 @@ def get_imgstore_images() -> List[Dict[str, Any]]:
     """List image files in IMGSTORE_DIR sorted by date/name with metadata."""
     images = []
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         if not IMGSTORE_DIR.exists():
-            logger.warning(f"IMGSTORE_DIR {IMGSTORE_DIR} does not exist")
+            safe_log("warning", f"IMGSTORE_DIR {IMGSTORE_DIR} does not exist")
             return images
         
         # Find all image files
@@ -735,9 +918,9 @@ def get_imgstore_images() -> List[Dict[str, Any]]:
         # Sort by timestamp (newest first)
         images.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         
-        logger.info(f"Found {len(images)} images in IMGSTORE")
+        safe_log("info", f"Found {len(images)} images in IMGSTORE")
     except Exception as e:
-        logger.error(f"Error listing images: {e}")
+        safe_log("error", f"Error listing images: {e}")
     
     return images
 
@@ -778,7 +961,6 @@ def parse_image_metadata(image_path: Path) -> Dict[str, Any]:
     return metadata
 
 
-
 # ========================================
 # V. BACKUP & RESTORE CORE FUNCTIONS
 # ========================================
@@ -788,23 +970,29 @@ def backup_boot_sector(target_device: str, dest_path: Path, compress: bool = Tru
     """Use dd to save first 10 MiB from target_device to dest_path."""
     result = {"ok": False, "dest_path": str(dest_path), "size": 0, "checksum": None}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
-        logger.info(f"Backing up boot sector from {target_device} to {dest_path}")
+        safe_log("info", f"Backing up boot sector from {target_device} to {dest_path}")
         
         # Build dd command (10 MiB = 10485760 bytes = 20480 blocks of 512 bytes)
-        dd_cmd = ['dd', f'if={target_device}', f'of={dest_path}', 'bs=512', 'count=20480', 
-                  'status=progress']
-        
         if compress:
             # Pipe through compressor
             if compressor == "zstd":
                 dest_path = dest_path.with_suffix(dest_path.suffix + '.zst')
-                dd_cmd = f"dd if={target_device} bs=512 count=20480 status=progress | zstd -3 -o {dest_path}"
+                cmd = f"dd if={target_device} bs=512 count=20480 status=progress | zstd -3 -o {dest_path}"
             else:
-                dd_cmd = f"dd if={target_device} bs=512 count=20480 status=progress > {dest_path}"
+                cmd = f"dd if={target_device} bs=512 count=20480 status=progress > {dest_path}"
             
-            subprocess.run(dd_cmd, shell=True, check=True)
+            subprocess.run(cmd, shell=True, check=True)
         else:
+            dd_cmd = ['dd', f'if={target_device}', f'of={dest_path}', 'bs=512', 'count=20480', 
+                      'status=progress']
             subprocess.run(dd_cmd, check=True)
         
         # Calculate checksum
@@ -815,9 +1003,9 @@ def backup_boot_sector(target_device: str, dest_path: Path, compress: bool = Tru
         result["size"] = dest_path.stat().st_size
         result["checksum"] = checksum
         
-        logger.info(f"Boot sector backup complete: {human_readable_size(result['size'])}")
+        safe_log("info", f"Boot sector backup complete: {human_readable_size(result['size'])}")
     except Exception as e:
-        logger.error(f"Boot sector backup failed: {e}")
+        safe_log("error", f"Boot sector backup failed: {e}")
         result["error"] = str(e)
     
     return result
@@ -828,8 +1016,15 @@ def backup_full_partclone(target_device: str, dest_path: Path, compress: bool = 
     """Use partclone to image raw filesystem/drive to dest_path."""
     result = {"ok": False, "dest_path": str(dest_path), "size": 0, "partclone_exit_code": -1}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
-        logger.info(f"Starting partclone backup of {target_device} to {dest_path}")
+        safe_log("info", f"Starting partclone backup of {target_device} to {dest_path}")
         
         # Detect filesystem type
         fs_result = subprocess.run(['blkid', '-o', 'value', '-s', 'TYPE', target_device],
@@ -852,9 +1047,9 @@ def backup_full_partclone(target_device: str, dest_path: Path, compress: bool = 
         result["size"] = dest_path.stat().st_size
         result["partclone_exit_code"] = 0
         
-        logger.info(f"Partclone backup complete: {human_readable_size(result['size'])}")
+        safe_log("info", f"Partclone backup complete: {human_readable_size(result['size'])}")
     except Exception as e:
-        logger.error(f"Partclone backup failed: {e}")
+        safe_log("error", f"Partclone backup failed: {e}")
         result["error"] = str(e)
     
     return result
@@ -865,8 +1060,15 @@ def backup_full_dd_raw(target_device: str, dest_path: Path, compress: bool = Tru
     """Use dd to copy entire device to dest_path."""
     result = {"ok": False, "dest_path": str(dest_path), "size": 0}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
-        logger.info(f"Starting dd raw backup of {target_device} to {dest_path}")
+        safe_log("info", f"Starting dd raw backup of {target_device} to {dest_path}")
         
         if compress:
             dest_path = dest_path.with_suffix(dest_path.suffix + '.zst')
@@ -880,9 +1082,9 @@ def backup_full_dd_raw(target_device: str, dest_path: Path, compress: bool = Tru
         result["dest_path"] = str(dest_path)
         result["size"] = dest_path.stat().st_size
         
-        logger.info(f"DD raw backup complete: {human_readable_size(result['size'])}")
+        safe_log("info", f"DD raw backup complete: {human_readable_size(result['size'])}")
     except Exception as e:
-        logger.error(f"DD raw backup failed: {e}")
+        safe_log("error", f"DD raw backup failed: {e}")
         result["error"] = str(e)
     
     return result
@@ -893,8 +1095,15 @@ def restore_boot_sector(image_path: Path, target_device: str,
     """Restore 10 MiB boot sector image using dd."""
     result = {"ok": False, "target_device": target_device}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
-        logger.info(f"Restoring boot sector from {image_path} to {target_device}")
+        safe_log("info", f"Restoring boot sector from {image_path} to {target_device}")
         
         # Warning
         print("\n" + "!" * 70)
@@ -902,7 +1111,7 @@ def restore_boot_sector(image_path: Path, target_device: str,
         print("!" * 70)
         
         if not confirm_user("Are you ABSOLUTELY SURE you want to continue?", default=False):
-            logger.info("Boot sector restore cancelled by user")
+            safe_log("info", "Boot sector restore cancelled by user")
             result["error"] = "Cancelled by user"
             return result
         
@@ -917,9 +1126,9 @@ def restore_boot_sector(image_path: Path, target_device: str,
         subprocess.run(cmd, shell=True, check=True)
         
         result["ok"] = True
-        logger.info("Boot sector restore complete")
+        safe_log("info", "Boot sector restore complete")
     except Exception as e:
-        logger.error(f"Boot sector restore failed: {e}")
+        safe_log("error", f"Boot sector restore failed: {e}")
         result["error"] = str(e)
     
     return result
@@ -930,8 +1139,15 @@ def restore_partclone(image_path: Path, target_device: str,
     """Restore partclone image to device."""
     result = {"ok": False, "target_device": target_device}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
-        logger.info(f"Restoring partclone image from {image_path} to {target_device}")
+        safe_log("info", f"Restoring partclone image from {image_path} to {target_device}")
         
         # Warning
         print("\n" + "!" * 70)
@@ -939,7 +1155,7 @@ def restore_partclone(image_path: Path, target_device: str,
         print("!" * 70)
         
         if not confirm_user("Type YES to confirm", default=False):
-            logger.info("Restore cancelled by user")
+            safe_log("info", "Restore cancelled by user")
             result["error"] = "Cancelled by user"
             return result
         
@@ -955,9 +1171,9 @@ def restore_partclone(image_path: Path, target_device: str,
         subprocess.run(cmd, shell=True, check=True)
         
         result["ok"] = True
-        logger.info("Partclone restore complete")
+        safe_log("info", "Partclone restore complete")
     except Exception as e:
-        logger.error(f"Partclone restore failed: {e}")
+        safe_log("error", f"Partclone restore failed: {e}")
         result["error"] = str(e)
     
     return result
@@ -968,8 +1184,15 @@ def restore_dd_raw(image_path: Path, target_device: str,
     """Restore raw dd image to device."""
     result = {"ok": False, "target_device": target_device}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
-        logger.info(f"Restoring dd raw image from {image_path} to {target_device}")
+        safe_log("info", f"Restoring dd raw image from {image_path} to {target_device}")
         
         # Warning
         print("\n" + "!" * 70)
@@ -977,7 +1200,7 @@ def restore_dd_raw(image_path: Path, target_device: str,
         print("!" * 70)
         
         if not confirm_user("Type YES to confirm", default=False):
-            logger.info("Restore cancelled by user")
+            safe_log("info", "Restore cancelled by user")
             result["error"] = "Cancelled by user"
             return result
         
@@ -991,9 +1214,9 @@ def restore_dd_raw(image_path: Path, target_device: str,
         subprocess.run(cmd, shell=True, check=True)
         
         result["ok"] = True
-        logger.info("DD raw restore complete")
+        safe_log("info", "DD raw restore complete")
     except Exception as e:
-        logger.error(f"DD raw restore failed: {e}")
+        safe_log("error", f"DD raw restore failed: {e}")
         result["error"] = str(e)
     
     return result
@@ -1003,16 +1226,23 @@ def run_verification(image_path: Path, verification_options: Dict) -> Dict[str, 
     """Run configured verification steps."""
     report = {"ok": True, "checks": []}
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
         # Checksum verification
         if verification_options.get("checksum"):
-            logger.info("Running checksum verification...")
+            safe_log("info", "Running checksum verification...")
             checksum = calculate_sha256(image_path)
             report["checks"].append({"test": "checksum", "result": "ok", "value": checksum})
         
         # Compress test (for compressed images)
         if verification_options.get("compress_test") and image_path.suffix in ['.zst', '.gz', '.xz']:
-            logger.info("Testing compressed file integrity...")
+            safe_log("info", "Testing compressed file integrity...")
             if image_path.suffix == '.zst':
                 test_cmd = f'zstd -t {image_path}'
             elif image_path.suffix == '.gz':
@@ -1026,9 +1256,9 @@ def run_verification(image_path: Path, verification_options: Dict) -> Dict[str, 
             if not test_ok:
                 report["ok"] = False
         
-        logger.info(f"Verification complete: {len(report['checks'])} checks performed")
+        safe_log("info", f"Verification complete: {len(report['checks'])} checks performed")
     except Exception as e:
-        logger.error(f"Verification failed: {e}")
+        safe_log("error", f"Verification failed: {e}")
         report["ok"] = False
         report["error"] = str(e)
     
@@ -1050,10 +1280,16 @@ def decompress_if_needed(image_path: Path, work_dir: Path) -> Path:
         elif image_path.suffix == '.xz':
             subprocess.run(f'xz -dc {image_path} > {decompressed_path}', shell=True, check=True)
         
-        logger.info(f"Decompressed to {decompressed_path}")
+        if logger:
+            logger.info(f"Decompressed to {decompressed_path}")
+        else:
+            _console_log("INFO", f"Decompressed to {decompressed_path}")
         return decompressed_path
     except Exception as e:
-        logger.error(f"Decompression failed: {e}")
+        if logger:
+            logger.error(f"Decompression failed: {e}")
+        else:
+            _console_log("ERROR", f"Decompression failed: {e}")
         return image_path
 
 
@@ -1087,7 +1323,6 @@ def calculate_sha256(file_path: Path) -> str:
     return sha256.hexdigest()
 
 
-
 # ===================================
 # VI. UI / INTERACTIVE FUNCTIONS
 # ===================================
@@ -1095,9 +1330,6 @@ def calculate_sha256(file_path: Path) -> str:
 def main_menu():
     """Top-level interactive menu with keys [B] Backup, [R] Restore, [S] Settings, [X] Exit."""
     settings = runtime_state.get("settings", read_settings())
-    
-    # Start headless timeout timer (handled separately)
-    # headless_entrypoint(timeout=settings.get("headless_timeout", HEADLESS_TIMEOUT))
     
     while True:
         print("\n" + "=" * 60)
@@ -1218,7 +1450,10 @@ def confirm_and_run_backup(selected_device: Dict, backup_type: str, options: Dic
     print("=" * 70)
     
     if not confirm_user("\nProceed with backup?", default=False):
-        logger.info("Backup cancelled by user")
+        if logger:
+            logger.info("Backup cancelled by user")
+        else:
+            _console_log("INFO", "Backup cancelled by user")
         return {"ok": False, "error": "Cancelled by user"}
     
     # Execute backup
@@ -1252,7 +1487,10 @@ def confirm_and_run_backup(selected_device: Dict, backup_type: str, options: Dic
         
         archive_lastrun_log()
     except Exception as e:
-        logger.error(f"Backup failed: {e}")
+        if logger:
+            logger.error(f"Backup failed: {e}")
+        else:
+            _console_log("ERROR", f"Backup failed: {e}")
         result = {"ok": False, "error": str(e)}
     
     return result
@@ -1350,7 +1588,10 @@ def confirm_and_run_restore(image_meta: Dict, target_device: str, restore_type: 
     # Safety checks
     valid, reason = validate_restore_target(target_device)
     if not valid:
-        logger.error(f"Invalid restore target: {reason}")
+        if logger:
+            logger.error(f"Invalid restore target: {reason}")
+        else:
+            _console_log("ERROR", f"Invalid restore target: {reason}")
         return {"ok": False, "error": reason}
     
     if not confirm_not_backrest_imgstore_target(target_device):
@@ -1366,12 +1607,18 @@ def confirm_and_run_restore(image_meta: Dict, target_device: str, restore_type: 
     print("!" * 70)
     
     if not confirm_user("\nType YES to confirm", default=False):
-        logger.info("Restore cancelled by user")
+        if logger:
+            logger.info("Restore cancelled by user")
+        else:
+            _console_log("INFO", "Restore cancelled by user")
         return {"ok": False, "error": "Cancelled by user"}
     
     # Double confirmation
     if not confirm_user("Are you ABSOLUTELY SURE?", default=False):
-        logger.info("Restore cancelled by user")
+        if logger:
+            logger.info("Restore cancelled by user")
+        else:
+            _console_log("INFO", "Restore cancelled by user")
         return {"ok": False, "error": "Cancelled by user"}
     
     # Execute restore
@@ -1396,7 +1643,10 @@ def confirm_and_run_restore(image_meta: Dict, target_device: str, restore_type: 
         
         archive_lastrun_log()
     except Exception as e:
-        logger.error(f"Restore failed: {e}")
+        if logger:
+            logger.error(f"Restore failed: {e}")
+        else:
+            _console_log("ERROR", f"Restore failed: {e}")
         result = {"ok": False, "error": str(e)}
     
     return result
@@ -1506,7 +1756,14 @@ def inventory_workflow():
 
 def shutdown_sequence(reason: str):
     """Optionally play sound, flush logs, archive logs, and shutdown."""
-    logger.info(f"Shutdown sequence initiated: {reason}")
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
+    safe_log("info", f"Shutdown sequence initiated: {reason}")
     
     settings = runtime_state.get("settings", read_settings())
     
@@ -1541,7 +1798,6 @@ def play_sound():
         print("\a")  # Terminal bell
 
 
-
 # ========================================
 # VII. HEADLESS / AUTOMATION FUNCTIONS
 # ========================================
@@ -1562,26 +1818,36 @@ def headless_entrypoint(timeout: int = HEADLESS_TIMEOUT):
         return False
     else:
         # Timeout reached, enter headless mode
-        logger.info("Entering headless mode")
+        if logger:
+            logger.info("Entering headless mode")
+        else:
+            _console_log("INFO", "Entering headless mode")
         return True
 
 
 def headless_run(cfg_path: Path = HEADLESS_CFG_PATH) -> Dict[str, Any]:
     """Main headless execution: read config, perform actions."""
-    logger.info("Beginning headless run")
-    
     summary = {
         "started": datetime.now().isoformat(),
         "actions": [],
         "return_code": 0
     }
     
+    # Safe logging function
+    def safe_log(level, message):
+        if logger:
+            getattr(logger, level.lower())(message)
+        else:
+            _console_log(level.upper(), message)
+    
     try:
+        safe_log("info", "Beginning headless run")
+        
         # Read configuration
         cfg = read_headless_cfg(cfg_path)
         
         if not cfg:
-            logger.error("headless.cfg not found. Aborting headless operation.")
+            safe_log("error", "headless.cfg not found. Aborting headless operation.")
             summary["return_code"] = 1
             archive_lastrun_log()
             return summary
@@ -1597,7 +1863,7 @@ def headless_run(cfg_path: Path = HEADLESS_CFG_PATH) -> Dict[str, Any]:
             if not net_result:
                 connectivity = test_network_connectivity()
                 if not connectivity["ping_ok"] and not settings.get("continue_without_network"):
-                    logger.error("Network required but not available")
+                    safe_log("error", "Network required but not available")
                     summary["return_code"] = 2
                     cleanup_headless(cfg_path)
                     return summary
@@ -1623,9 +1889,9 @@ def headless_run(cfg_path: Path = HEADLESS_CFG_PATH) -> Dict[str, Any]:
         if cfg.get("shutdown_after", False):
             shutdown_sequence("headless complete")
         
-        logger.info("Headless run complete")
+        safe_log("info", "Headless run complete")
     except Exception as e:
-        logger.error(f"Headless run failed: {e}")
+        safe_log("error", f"Headless run failed: {e}")
         summary["return_code"] = 1
         summary["error"] = str(e)
         cleanup_headless(cfg_path)
@@ -1638,16 +1904,25 @@ def read_headless_cfg(cfg_path: Path) -> Optional[Dict]:
     """Parse headless.cfg into a structured dict."""
     try:
         if not cfg_path.exists():
-            logger.error(f"Headless config not found: {cfg_path}")
+            if logger:
+                logger.error(f"Headless config not found: {cfg_path}")
+            else:
+                _console_log("ERROR", f"Headless config not found: {cfg_path}")
             return None
         
         with open(cfg_path, 'r') as f:
             cfg = json.load(f)
         
-        logger.info("Headless config loaded")
+        if logger:
+            logger.info("Headless config loaded")
+        else:
+            _console_log("INFO", "Headless config loaded")
         return cfg
     except Exception as e:
-        logger.error(f"Error reading headless config: {e}")
+        if logger:
+            logger.error(f"Error reading headless config: {e}")
+        else:
+            _console_log("ERROR", f"Error reading headless config: {e}")
         return None
 
 
@@ -1656,14 +1931,23 @@ def headless_get_info(save_path: Path = None) -> str:
     if save_path is None:
         save_path = LOGS_CFG_DIR / "inventory.txt"
     
-    logger.info("Collecting system inventory")
+    if logger:
+        logger.info("Collecting system inventory")
+    else:
+        _console_log("INFO", "Collecting system inventory")
     success, path = save_inventory(save_path)
     
     if success:
-        logger.info(f"Inventory saved to {path}")
+        if logger:
+            logger.info(f"Inventory saved to {path}")
+        else:
+            _console_log("INFO", f"Inventory saved to {path}")
         return str(path)
     else:
-        logger.error("Failed to save inventory")
+        if logger:
+            logger.error("Failed to save inventory")
+        else:
+            _console_log("ERROR", "Failed to save inventory")
         return None
 
 
@@ -1672,14 +1956,20 @@ def headless_backup_sequence(cfg: Dict, settings: Dict) -> List[Dict]:
     results = []
     
     backups = cfg.get("backups", [])
-    logger.info(f"Processing {len(backups)} backup tasks")
+    if logger:
+        logger.info(f"Processing {len(backups)} backup tasks")
+    else:
+        _console_log("INFO", f"Processing {len(backups)} backup tasks")
     
     for backup_task in backups:
         try:
             target_device = backup_task.get("device")
             backup_type = backup_task.get("type", "partclone")
             
-            logger.info(f"Backing up {target_device} as {backup_type}")
+            if logger:
+                logger.info(f"Backing up {target_device} as {backup_type}")
+            else:
+                _console_log("INFO", f"Backing up {target_device} as {backup_type}")
             
             # Build destination
             timestamp = datetime.now()
@@ -1711,7 +2001,10 @@ def headless_backup_sequence(cfg: Dict, settings: Dict) -> List[Dict]:
             
             results.append(result)
         except Exception as e:
-            logger.error(f"Backup task failed: {e}")
+            if logger:
+                logger.error(f"Backup task failed: {e}")
+            else:
+                _console_log("ERROR", f"Backup task failed: {e}")
             results.append({"ok": False, "error": str(e), "device": backup_task.get("device")})
     
     return results
@@ -1722,7 +2015,10 @@ def headless_restore_sequence(cfg: Dict, settings: Dict) -> List[Dict]:
     results = []
     
     restores = cfg.get("restores", [])
-    logger.info(f"Processing {len(restores)} restore tasks")
+    if logger:
+        logger.info(f"Processing {len(restores)} restore tasks")
+    else:
+        _console_log("INFO", f"Processing {len(restores)} restore tasks")
     
     for restore_task in restores:
         try:
@@ -1730,11 +2026,17 @@ def headless_restore_sequence(cfg: Dict, settings: Dict) -> List[Dict]:
             target_device = restore_task.get("target_device")
             restore_type = restore_task.get("type", "partclone")
             
-            logger.info(f"Restoring {image_pattern} to {target_device}")
+            if logger:
+                logger.info(f"Restoring {image_pattern} to {target_device}")
+            else:
+                _console_log("INFO", f"Restoring {image_pattern} to {target_device}")
             
             # Safety check
             if not confirm_not_backrest_imgstore_target(target_device):
-                logger.error(f"Cannot restore to BackRest drive: {target_device}")
+                if logger:
+                    logger.error(f"Cannot restore to BackRest drive: {target_device}")
+                else:
+                    _console_log("ERROR", f"Cannot restore to BackRest drive: {target_device}")
                 results.append({"ok": False, "error": "Target is BackRest drive", "target": target_device})
                 continue
             
@@ -1747,7 +2049,10 @@ def headless_restore_sequence(cfg: Dict, settings: Dict) -> List[Dict]:
                     break
             
             if not matching_image:
-                logger.error(f"Image not found: {image_pattern}")
+                if logger:
+                    logger.error(f"Image not found: {image_pattern}")
+                else:
+                    _console_log("ERROR", f"Image not found: {image_pattern}")
                 results.append({"ok": False, "error": "Image not found", "pattern": image_pattern})
                 continue
             
@@ -1765,7 +2070,10 @@ def headless_restore_sequence(cfg: Dict, settings: Dict) -> List[Dict]:
             
             results.append(result)
         except Exception as e:
-            logger.error(f"Restore task failed: {e}")
+            if logger:
+                logger.error(f"Restore task failed: {e}")
+            else:
+                _console_log("ERROR", f"Restore task failed: {e}")
             results.append({"ok": False, "error": str(e), "target": restore_task.get("target_device")})
     
     return results
@@ -1776,11 +2084,17 @@ def cleanup_headless(cfg_path: Path) -> bool:
     try:
         if cfg_path.exists():
             cfg_path.unlink()
-            logger.info(f"Deleted headless config: {cfg_path}")
+            if logger:
+                logger.info(f"Deleted headless config: {cfg_path}")
+            else:
+                _console_log("INFO", f"Deleted headless config: {cfg_path}")
             return True
         return False
     except Exception as e:
-        logger.error(f"Error deleting headless config: {e}")
+        if logger:
+            logger.error(f"Error deleting headless config: {e}")
+        else:
+            _console_log("ERROR", f"Error deleting headless config: {e}")
         return False
 
 
@@ -1795,10 +2109,16 @@ def require_root_or_user(user: str = "backrest") -> bool:
     current_user = pwd.getpwuid(os.getuid()).pw_name
     
     if current_user == 'root' or current_user == user:
-        logger.info(f"Running as user: {current_user}")
+        if logger:
+            logger.info(f"Running as user: {current_user}")
+        else:
+            _console_log("INFO", f"Running as user: {current_user}")
         return True
     else:
-        logger.error(f"Must run as root or {user}, currently: {current_user}")
+        if logger:
+            logger.error(f"Must run as root or {user}, currently: {current_user}")
+        else:
+            _console_log("ERROR", f"Must run as root or {user}, currently: {current_user}")
         print(f"Error: This script must be run as root or {user}")
         return False
 
@@ -1806,7 +2126,10 @@ def require_root_or_user(user: str = "backrest") -> bool:
 def confirm_not_backrest_imgstore_target(target_device: str) -> bool:
     """Ensure that target_device is not BACKREST_DRV."""
     if BACKREST_DRV and target_device == BACKREST_DRV:
-        logger.error(f"Target device {target_device} is the BackRest drive!")
+        if logger:
+            logger.error(f"Target device {target_device} is the BackRest drive!")
+        else:
+            _console_log("ERROR", f"Target device {target_device} is the BackRest drive!")
         print(f"\nERROR: Cannot restore to BackRest drive ({BACKREST_DRV})")
         return False
     return True
@@ -1815,14 +2138,24 @@ def confirm_not_backrest_imgstore_target(target_device: str) -> bool:
 def handle_signals_and_cleanup():
     """Install signal handlers (SIGINT, SIGTERM)."""
     def signal_handler(signum, frame):
-        logger.warning(f"Received signal {signum}, cleaning up...")
+        # Safe logging function
+        def safe_log(level, message):
+            if logger:
+                getattr(logger, level.lower())(message)
+            else:
+                _console_log(level.upper(), message)
+        
+        safe_log("warning", f"Received signal {signum}, cleaning up...")
         archive_lastrun_log()
         sys.exit(1)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    logger.debug("Signal handlers installed")
+    if logger:
+        logger.debug("Signal handlers installed")
+    else:
+        _console_log("DEBUG", "Signal handlers installed")
 
 
 # ===========================
@@ -1875,7 +2208,10 @@ def main():
     
     # Check for headless mode
     if HEADLESS_CFG_PATH.exists():
-        logger.info("Headless config detected")
+        if logger:
+            logger.info("Headless config detected")
+        else:
+            _console_log("INFO", "Headless config detected")
         # Enter headless mode immediately
         headless_run(HEADLESS_CFG_PATH)
         sys.exit(0)
@@ -1888,16 +2224,25 @@ def main():
         if HEADLESS_CFG_PATH.exists():
             headless_run(HEADLESS_CFG_PATH)
         else:
-            logger.info("No headless config found, entering interactive mode")
+            if logger:
+                logger.info("No headless config found, entering interactive mode")
+            else:
+                _console_log("INFO", "No headless config found, entering interactive mode")
             main_menu()
     else:
         # User pressed key, enter interactive mode
-        logger.info("Entering interactive mode")
+        if logger:
+            logger.info("Entering interactive mode")
+        else:
+            _console_log("INFO", "Entering interactive mode")
         main_menu()
     
     # Cleanup
     archive_lastrun_log()
-    logger.info("BackRest exiting")
+    if logger:
+        logger.info("BackRest exiting")
+    else:
+        _console_log("INFO", "BackRest exiting")
 
 
 if __name__ == "__main__":
