@@ -1,0 +1,210 @@
+# BackRest Headless Configuration Example
+# Copy this file to /logs-cfg/headless.cfg and edit as needed
+# This file will be deleted after each headless run for safety
+
+# Global Settings
+[global]
+# Enable headless mode (true/false)
+headless_enabled: true
+
+# Operation to perform (backup/restore/verify/info)
+operation: backup
+
+# Logging level (debug/info/warning/error)
+log_level: info
+
+# Timeout in seconds before switching to headless mode
+headless_timeout: 30
+
+# Auto-shutdown after operation completion (true/false)
+auto_shutdown: true
+
+# Play sound on completion (true/false)
+play_sound: false
+
+# Backup Settings
+[backup]
+# Backup source (drive or partition to backup)
+# Examples: /dev/sda, /dev/sda1, /dev/nvme0n1
+source_device: /dev/sda
+
+# Backup type (full_drive, partition, boot_sector)
+backup_type: full_drive
+
+# Backup method (partclone, dd_raw, dd_compressed)
+backup_method: partclone
+
+# Compression settings (if using compressed backup)
+compress: true
+compressor: zstd
+compression_level: 3
+
+# Backup destination in /imgstore
+# Optional: if not specified, uses default naming
+destination_name: "system_backup_$(date +%Y%m%d_%H%M%S)"
+
+# Verify backup after creation (true/false)
+verify_backup: true
+
+# Verification methods to use
+verify_integrity: true
+verify_checksum: true
+verify_mount: false
+
+# Restore Settings
+[restore]
+# Backup image to restore from
+# This should be the filename in /imgstore
+source_image: "system_backup_20251107_120000.img"
+
+# Restore destination (drive or partition to restore to)
+# CAUTION: This will overwrite the target device!
+destination_device: /dev/sda
+
+# Restore type (full_drive, partition, boot_sector)
+restore_type: full_drive
+
+# Restore method (partclone, dd_raw)
+restore_method: partclone
+
+# Safety check: prevent restoring to the BackRest drive itself
+prevent_backrest_restore: true
+
+# Network Configuration
+[network]
+# Enable network configuration (true/false)
+configure_network: true
+
+# Network interface to configure
+# Leave empty to auto-detect
+interface: ""
+
+# Static IP configuration (optional)
+# If not provided, uses DHCP
+static_ip: ""
+netmask: ""
+gateway: ""
+dns_servers: ""
+
+# WiFi configuration (if wireless interface detected)
+# Format: ssid:password
+wifi_networks:
+  - "MyWiFi:MyPassword"
+  - "OfficeWiFi:OfficePassword"
+
+# Skip WiFi configuration if no wireless interface (true/false)
+skip_wifi: false
+
+# Verify network connectivity (true/false)
+test_connectivity: true
+
+# System Settings
+[system]
+# Run self-test on launch (true/false)
+run_self_test: true
+
+# Continue if dependencies missing (true/false)
+continue_on_missing_deps: false
+
+# Continue without network (true/false)
+continue_without_network: false
+
+# Device scanning settings
+# Maximum devices to scan
+max_devices: 10
+
+# Exclude certain devices (regex patterns)
+exclude_devices: "^loop.*|^sr.*|^ram.*"
+
+# Logging Settings
+[logging]
+# Log file path (relative to /logs-cfg)
+log_file: "headless.log"
+
+# Log to console as well (true/false)
+console_log: false
+
+# Log rotation settings
+max_log_size_mb: 10
+max_log_files: 5
+
+# Advanced Settings
+[advanced]
+# Custom backup options
+custom_partclone_options: ""
+custom_dd_options: "bs=4M conv=notrunc"
+
+# Pre-operation custom commands (executed before main operation)
+pre_commands: []
+# Example: ["mount /dev/sdb1 /mnt/external", "sync"]
+
+# Post-operation custom commands (executed after main operation)
+post_commands: []
+# Example: ["umount /mnt/external", "echo 'Backup completed' > /tmp/status"]
+
+# Custom verification commands
+custom_verify_commands: []
+# Example: ["fsck /dev/sda1", "smartctl --all /dev/sda"]
+
+# Emergency Settings
+[emergency]
+# Maximum time to wait for operation completion (in minutes)
+max_operation_time: 120
+
+# Action to take on timeout (shutdown/retry/continue)
+on_timeout: shutdown
+
+# Enable emergency logs
+emergency_logging: true
+
+# Recovery options
+enable_recovery_mode: true
+recovery_backup_location: "/logs-cfg/recovery_backups"
+
+# Examples
+# =============
+
+# Example 1: Full system backup
+# [global]
+# headless_enabled: true
+# operation: backup
+# auto_shutdown: true
+# 
+# [backup]
+# source_device: /dev/sda
+# backup_type: full_drive
+# backup_method: partclone
+# compress: true
+# compressor: zstd
+# verify_backup: true
+
+# Example 2: Restore operation
+# [global]
+# operation: restore
+# auto_shutdown: true
+# 
+# [restore]
+# source_image: "system_backup_20251107_120000.img"
+# destination_device: /dev/sda
+# restore_type: full_drive
+
+# Example 3: Network-enabled backup with WiFi
+# [network]
+# configure_network: true
+# wifi_networks:
+#   - "OfficeNetwork:OfficePassword2024"
+#   - "BackupNetwork:BackupPass123"
+# test_connectivity: true
+
+# Notes:
+# =====
+# 1. Always test your configuration in a safe environment first
+# 2. The file will be deleted after each run for security
+# 3. Use descriptive names for backup images
+# 4. Include timestamp in backup names to avoid conflicts
+# 5. Always verify backups after creation
+# 6. Be extremely careful with restore operations - they overwrite data!
+# 7. The prevent_backrest_restore setting protects your BackRest drive
+# 8. Network configuration is optional but recommended for remote monitoring
+# 9. Custom commands can be used for special backup scenarios
+# 10. Always maintain multiple backup images for redundancy
