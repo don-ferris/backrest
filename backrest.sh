@@ -362,7 +362,23 @@ install_packages() {
   pkgs=("$@")
   log_append "install_packages: apt-get install -y ${pkgs[*]}"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y >>"$LOGDIR/ensure-deps.log" 2>&1 || log_append "apt-get update had warnings/errors"
+  # Retry apt-get update up to a few times with exponential backoff to handle transient network/mirror issues.
+  # We log each failed attempt to the ensure-deps log and abort the install if all attempts fail.
+  _ar_attempts=3
+  _ar_try=1
+  _ar_wait=1
+  _ar_ok=1
+  while [ "$_ar_try" -le "$_ar_attempts" ]; do
+    if apt-get update -y >>"$LOGDIR/ensure-deps.log" 2>&1; then
+      _ar_ok=0
+      break
+    fi
+    log_append "apt-get update failed (attempt $_ar_try of $_ar_attempts); retrying in ${_ar_wait}s"
+    sleep "$_ar_wait"
+    _ar_try=$(( _ar_try + 1 ))
+    _ar_wait=$(( _ar_wait * 2 ))
+  done
+  [ "$_ar_ok" -eq 0 ] || { log_append "apt-get update failed after ${_ar_attempts} attempts"; return 1; }
   if ! apt-get install -y "${pkgs[@]}" >>"$LOGDIR/ensure-deps.log" 2>&1; then log_append "apt-get install failed for: ${pkgs[*]}"; return 1; fi
   log_append "install_packages: succeeded for: ${pkgs[*]}"
   return 0
