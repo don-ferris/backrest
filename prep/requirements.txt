@@ -1,0 +1,36 @@
+# BackRest Preparation Script Requirements
+
+# Core Python dependencies (usually built-in)
+# - os
+# - sys  
+# - subprocess
+# - shutil
+# - platform
+# - json
+# - hashlib
+# - tempfile
+# - argparse
+# - logging
+# - pathlib
+# - typing
+# - time
+
+# Optional system dependencies (install via package manager):
+# - dd (coreutils)
+# - lsblk (util-linux) 
+# - efibootmgr (efibootmgr package)
+# - grub-install (grub-efi package)
+# - mokutil (mokutil package, for Secure Boot detection)
+
+# Development and testing dependencies (optional)
+pytest>=6.0.0
+pytest-cov>=2.0.0
+
+# For enhanced logging and monitoring
+colorlog>=6.0.0
+
+# For advanced system information gathering
+psutil>=5.0.0
+
+# For better error handling and reporting
+tqdm>=4.0.0
